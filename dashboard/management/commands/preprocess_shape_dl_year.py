@@ -15,15 +15,20 @@ class Command(BaseCommand):
 
         ShapeDataLayerYearStats.objects.all().delete()
 
-
         for data_layer in data_layers:
-            table_name = data_layer.key
-            temporal_resolution = data_layer.temporal_resolution
+            try:
+                table_name = data_layer.key
+                temporal_resolution = data_layer.temporal_resolution
+                if temporal_resolution == LayerTimeResolution.YEAR:
+                    self.copy_all_entries(table_name, data_layer)
+                else:
+                    self.process_non_yearly_layers(data_layer)
 
-            if temporal_resolution == LayerTimeResolution.YEAR:
-                self.copy_all_entries(table_name, data_layer)
-            else:
-                self.process_non_yearly_layers(data_layer)
+            except Exception as layer_error:
+                self.stdout.write(
+                    self.style.ERROR(
+                        f"Error processing data layer {data_layer.key}: {layer_error}")
+                )
 
         self.stdout.write(self.style.SUCCESS('Successfully precomputed stats!'))
 
@@ -49,21 +54,25 @@ class Command(BaseCommand):
             available_years = data_layer.get_available_years
 
             for year in available_years:
-                with connection.cursor() as cursor:
-                    cursor.execute(f"""
-                        SELECT AVG(value)
-                        FROM {table_name}
-                        WHERE shape_id = %s AND EXTRACT(year from date) = %s
-                    """, [shape.id, year])
-                    result = cursor.fetchone()
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute(f"""
+                            SELECT AVG(value)
+                            FROM {table_name}
+                            WHERE shape_id = %s AND EXTRACT(year from date) = %s
+                        """, [shape.id, year])
+                        result = cursor.fetchone()
 
-                    if result and result[0] is not None:
-                        avg_value = result[0]
-                        ShapeDataLayerYearStats.objects.create(
-                            shape_id=shape.id,
-                            data_layer=data_layer.key,
-                            year=year,
-                            value=avg_value
-                        )
-            self.stdout.write(
-                f'Finished processing data from {table_name}.')
+                        if result and result[0] is not None:
+                            avg_value = result[0]
+                            ShapeDataLayerYearStats.objects.create(
+                                shape_id=shape.id,
+                                data_layer=data_layer.key,
+                                year=year,
+                                value=avg_value
+                            )
+                except Exception as e:
+                    self.stdout.write(
+                        f"Error processing table {table_name}, shape {shape.id}, year {year}: {e}")
+
+        self.stdout.write(f'Finished processing data from {table_name}.')
