@@ -70,5 +70,4 @@ class Command(BaseCommand):
                             year=year,
                             value=avg_value
                         )
-            self.stdout.write(
-                f'Finished processing data from {table_name}.')
+        self.stdout.write(f'Finished processing data from {table_name}.')
