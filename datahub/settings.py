@@ -37,6 +37,8 @@ env = environ.Env(
     DATAHUB_DATALAYER_DIR=(str, "src"),
     DATAHUB_DATA_DIR=(str, "data"),
     DATAHUB_HEAD=(str, ""),
+    DATAHUB_KEY=(str, ""),
+    DATAHUB_GEOMETRY_SIMPLIFY=(float, None),
 )
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -51,7 +53,7 @@ DATAHUB_DATA_DIR = BASE_DIR / env("DATAHUB_DATA_DIR")
 LOG_DIR = DATAHUB_DATA_DIR / "logs"
 
 
-Path(LOG_DIR).mkdir(parents=False, exist_ok=True)
+Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
 
 
 # Quick-start development settings - unsuitable for production
@@ -64,7 +66,11 @@ SECRET_KEY = env("SECRET_KEY")
 # DEBUG = env("DEBUG")
 DEBUG=True
 
-loglevel = "DEBUG" if DEBUG else env("LOGLEVEL").upper()
+loglevel_default = "INFO"
+if DEBUG:
+    loglevel_default = "DEBUG"
+loglevel = env("LOGLEVEL", default=loglevel_default).upper()
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -124,7 +130,6 @@ INTERNAL_IPS = ["127.0.0.1"]
 # Application definition
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -135,6 +140,7 @@ INSTALLED_APPS = [
     "datalayers",
     "shapes",
     "taggit",
+    "django.contrib.admin",  # lower position to allow core apps to overwrite admin templates
     "src.datalayer",
     "dashboard"
 ]
@@ -205,6 +211,19 @@ DATABASES = {
     }
 }
 
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": BASE_DIR / ".cache/default",
+        "TIMEOUT": None,  # never invalidate cache automatically
+    },
+    "geojson": {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": BASE_DIR / ".cache/geojson",
+        "TIMEOUT": None,  # never invalidate cache automatically
+    },
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
@@ -232,6 +251,9 @@ AUTH_USER_MODEL = "app.User"
 LANGUAGE_CODE = "en-us"
 
 TIME_ZONE = "UTC"
+
+DATE_FORMAT = "Y-m-d"
+DATETIME_FORMAT = "Y-m-d H:i:s"
 
 USE_I18N = True
 USE_THOUSAND_SEPARATOR = True
@@ -303,8 +325,10 @@ DATAHUB_CENTER_Y = env("DATAHUB_CENTER_Y")
 # levels: https://leafletjs.com/examples/zoom-levels/
 DATAHUB_CENTER_ZOOM = env("DATAHUB_CENTER_ZOOM")
 
+DATAHUB_GEOMETRY_SIMPLIFY = env("DATAHUB_GEOMETRY_SIMPLIFY")
 
 DATAHUB_HEAD = env("DATAHUB_HEAD")
+DATAHUB_KEY = env("DATAHUB_KEY")
 
 INSTANCE_VERSION = False
 try:

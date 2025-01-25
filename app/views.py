@@ -1,11 +1,23 @@
+import datetime as dt
+
 from django.contrib.gis.geos import Point
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils.translation import gettext as _
+from django.views.decorators.http import require_GET
 
+from app.utils import prase_date_or_today
 from datalayers.models import Datalayer
 from shapes.models import Shape, Type
+
+
+@require_GET
+def robots_txt(request):
+    txt = """User-agent: *
+Disallow: /api/
+"""
+    return HttpResponse(txt, content_type="text/plain")
 
 
 def home(request):
@@ -14,7 +26,7 @@ def home(request):
         "app/home.html",
         {
             "shapes_count": Shape.objects.count(),
-            "shape_types": Type.objects.all(),
+            "shape_types": Type.objects.order_by("position").all(),
             "datalayers_count": Datalayer.objects.count(),
         },
     )
@@ -75,12 +87,22 @@ def tools_picker(request):
 
     lat = request.GET.get("lat")
     lng = request.GET.get("lng")
+    shape_type = request.GET.get("shape_type")
+    temporal = request.GET.get("temporal")
+    datalayers = request.GET.get("datalayers")
+
+    if datalayers:
+        datalayers = [item.strip() for item in datalayers.split(",")]
 
     if lat is not None and lng is not None:
+        context["dt_temporal"] = prase_date_or_today(temporal)
+
         point = Point(float(lng), float(lat))
         shapes = Shape.objects.filter(geometry__contains=point).order_by(
             "type__position"
         )
+
+        valid_shape_types = [shape.type.key for shape in shapes]
 
         if not shapes:
             context["warning"] = _(
@@ -90,7 +112,19 @@ def tools_picker(request):
             context["shapes"] = shapes
             context["point"] = point
 
-            all_layers = Datalayer.objects.all()
+            if shape_type in valid_shape_types:
+                context["shape_type"] = shape_type
+                context["active_shape"] = next(
+                    shape for shape in shapes if shape.type.key == shape_type
+                )
+            else:
+                context["shape_type"] = valid_shape_types[0]
+                context["active_shape"] = shapes[0]
+
+            if datalayers:
+                all_layers = Datalayer.objects.get_datalayers(datalayers)
+            else:
+                all_layers = Datalayer.objects.all()
             context["datalayers"] = []
             for layer in all_layers:
                 if layer.is_available():

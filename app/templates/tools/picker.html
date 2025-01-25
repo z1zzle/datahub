@@ -1,9 +1,7 @@
 {% extends "base.html" %}
 
-{% load humanize %}
 {% load i18n %}
-{% load datalayer_value %}
-{% load datalayerformat %}
+{% load generate_uuid %}
 
 {% block title %}{% translate "Location picker" %}{% endblock %}
 
@@ -23,102 +21,45 @@
 	</div>
 {% elif shapes %}
 <div class="row">
-<div class="col-12">
-	<p>
-		{% translate "The provided location is contained inside the following shapes:" %}
-	</p>
-
-	{% for shape in shapes %}
-	<details id="details{{ forloop.counter0 }}" class="card mb-3">
-        <summary class="card-header">
-            <a href="{{ shape.get_absolute_url }}">{{ shape.name }}</a>
-			<span class="text-muted">(<a href="{{ shape.type.get_absolute_url }}">{{ shape.type.name }}</a>)</span>
-		</summary>
-        <div class="card-body">
-			<div class="row">
-				<div class="col-12 col-lg-8">
+	<div class="col-12">
+		<p>
+			{% translate "The provided location is contained inside the following shapes:" %}
+		</p>
 
 
-					<div class="mb-3">
-					<table class="table table-sm small table-striped" id="datalayers{{ forloop.counter0 }}">
-						<thead>
-							<tr>
-								<th>{% translate "Category" %}</th>
-								<th>{% translate "Data Layer" %}</th>
-								<th>{% translate "First" %}</th>
-								<th>{% translate "Last" %}</th>
-								<th>
-									{% translate "Latest value" %}
-								</th>
-								<th class="no-sort text-end">{% translate "Actions" %}</th>
-							</tr>
-						</thead>
-						<tbody>
-						{% for dl in datalayers %}
-							<tr>
-								<td class="align-middle">
-									{% with category=dl.category %}
-										{% if category %}
-											<a class="link-secondary" href="{{ category.get_absolute_url}}">
-												{{ category }}
-											</a>
-										{% else %}
-											-
-										{% endif %}
-									{% endwith %}
-								</td>
-								<td class="align-middle">
-									<a class="text-body" href="{{ dl.get_absolute_url }}">{{ dl.name }}</a>
-									{% include "datalayers/partials/tags.html" with datalayer=dl %}
-									<code class="visually-hidden">{{ dl.key }}</code>
-								</td>
+		<div class="card">
+			<div class="card-header">
+				<ul class="nav nav-tabs card-header-tabs">
+					{% for shape in shapes %}
+					<li class="nav-item">
+					<a class="nav-link{%if shape_type == shape.type.key %} active{%endif%}"{%if shape_type == shape.type.key %} aria-current="page"{%endif%} href="{% querystring shape_type=shape.type.key %}">
+						<span class="text-muted">{{ shape.type.name }}:</span>
+						<span class="">{{ shape.name }}</span>
+					</a>
+					</li>
+					{% endfor %}
+				</ul>
+			</div>
 
-								{% with dlv=shape|datalayer_first_value:dl %}
-								<td class="align-middle text-nowrap">{{ dlv.date }}</td>
-								{% endwith %}
-
-								{% with dlv=shape|datalayer_value:dl %}
-								<td class="align-middle text-nowrap">{{ dlv.date }}</td>
-								<td class="align-middle js-value" data-order="{{ dlv.value }}"
-								  data-value-formatted="{{ dlv.value|datalayerformat:dl }}"
-								  data-value-raw="{{ dlv.value }}">
-									{{ dlv.value|datalayerformat:dl }}
-								</td>
-								{% endwith %}
-
-								<td>
-									<div class="d-flex justify-content-end">
-										<button
-										data-container="charts{{ forloop.parentloop.counter0 }}"
-										data-datalayer-key="{{ dl.key }}"
-										data-shape-id="{{shape.id}}"
-										data-datalayer-name="{{ dl.name }}"
-										title="{% translate "Show temporal trend" %}" class="btn btn-sm btn-outline-primary js-add-datalayer-chart">{% icon "graph" %}</button>
-										<a title="{% translate "Download processed data for this shape and Data Layer" %}" rel="nofollow" href="{% url "datalayer_data" %}?datalayer_key={{ dl.key}}&shape_id={{shape.id}}&format=csv" class="ms-1 btn btn-sm btn-outline-primary">{% icon "download" %}</a>
-										<a title="{% translate "Show Data Layer details" %}" href="{{ dl.get_absolute_url }}"  class="ms-1 btn btn-sm btn-link">{% icon "arrow-right" %}</a>
-									</div>
-								</td>
-							</tr>
-						{% endfor %}
-						</tbody>
-					</table>
+			<div class="card-body">
+				<div class="row">
+					<div class="col-12 col-lg-8">
+						{% generate_uuid as id %}
+						{% include "datalayers/partials/table.html" with id=id own_chart_container=True datalayers=datalayers shape=active_shape temporal=dt_temporal %}
 					</div>
 
-				</div>
-				<div class="col-12 col-lg-4">
-					<div id="map{{ forloop.counter0 }}" style="width: 100%; height: 250px"></div>
-				</div>
+					<div class="col-12 col-lg-4">
+						<div id="map" style="width: 100%; height: 250px"></div>
+					</div>
 
-				<div class="col-12">
-					<div id="charts{{ forloop.counter0 }}"></div>
+					<div class="col-12">
+						<div id="charts-{{ id }}"></div>
+					</div>
 				</div>
 			</div>
 		</div>
-	</details>
-	{%endfor%}
+	</div>
 </div>
-</div>
-
 
 <hr>
 {% endif %}
@@ -136,7 +77,7 @@
 
 
 				<div class="mb-3">
-					<div id="map" style="width: 100%; height: 300px"></div>
+					<div id="map_picker" style="width: 100%; height: 300px"></div>
 					<div class="form-text">{% translate "Click on the map to set coordinates in the form." %}</div>
 				</div>
 
@@ -146,12 +87,18 @@
 							<label for="lat">{% translate "Latitude" %}</label>
 							<input type="number" class="form-control" id="lat" name="lat" step="any"  min="-90" max="90" placeholder="{% translate "Latitude" %}" required>
 						</div>
-						<div class="mb-3 col-6">
+						<div class="col-6 mb-3">
 							<label for="lng">{% translate "Longitude" %}</label>
 							<input type="number" class="form-control" id="lng" name="lng" step="any" min="-180" max="180" placeholder="{% translate "Longitude" %}" required>
 						</div>
 					</div>
 
+					<div class="row">
+						<div class="col-6 mb-3">
+							<label for="temporal">{% translate "Value at time" %} <span class="text-muted">{% translate "(optional)" %}</span></label>
+							<input type="date" class="form-control" id="temporal" name="temporal">
+						</div>
+					</div>
 
 					<div class="d-flex justify-content-end">
 							<button type="submit" class="btn btn-primary">
@@ -169,7 +116,7 @@
 
 {% block footer %}
 <script type="module">
-var picker = new MyMap('map');
+var picker = new MyMap('map_picker');
 
 var marker = false;
 picker.map.on("click", function (event) {
@@ -197,6 +144,7 @@ $('.js-add-datalayer-chart').on('click', function() {
 
 	var charts = document.getElementById(container);
 	var chart = document.createElement("dh-chart");
+	chart.setAttribute("show_remove", true);
 	chart.setAttribute("dl", datalayer_key);
 	chart.setAttribute("query", JSON.stringify({shape_id: shape_id}));
 
@@ -207,14 +155,13 @@ $('.js-add-datalayer-chart').on('click', function() {
 	});
 });
 
-{% if shapes %}
-{% for shape in shapes %}
-var map{{ forloop.counter0 }} = new MyMap('map{{ forloop.counter0 }}');
-map{{ forloop.counter0 }}.load_shape({shape_id: '{{ shape.id }}', name: '{{ shape.name }}'});
+{% if active_shape %}
+var map = new MyMap('map');
+map.load_shape({shape_id: '{{ active_shape.id }}', name: '{{ active_shape.name }}'});
 
-var marker{{ forloop.counter0 }} = L.marker([{{ point.y}}, {{point.x}}]).addTo(map{{ forloop.counter0 }}.map);
+var marker = L.marker([{{ point.y}}, {{point.x}}]).addTo(map.map);
 
-var $table{{ forloop.counter0 }} = $('#datalayers{{ forloop.counter0 }}').DataTable({
+var $table = $('#datalayers').DataTable({
 	pageLength: 10,
 	//order: [[0, 'asc']],
 	columnDefs: [
@@ -227,8 +174,6 @@ var $table{{ forloop.counter0 }} = $('#datalayers{{ forloop.counter0 }}').DataTa
 	map{{ forloop.counter0 }}.map.invalidateSize();
 	$('#datalayers{{ forloop.counter0 }}').DataTable().responsive.recalc();
 });*/
-
-{%endfor%}
 {% endif %}
 
 

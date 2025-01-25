@@ -11,7 +11,7 @@ from psycopg import sql
 from django.db import connection
 from django.utils import formats
 
-from datalayers.utils import get_engine
+from datalayers.utils import get_conn_string, get_engine
 
 
 class LayerTimeResolution(Enum):
@@ -69,6 +69,10 @@ class BaseLayer:
         # Optional suffix for formatting human readable values
         self.format_suffix = None
 
+    @property
+    def key(self):
+        return self.layer.key
+
     def download(self):
         """Automatic download of data source files."""
         raise NotImplementedError
@@ -98,7 +102,9 @@ class BaseLayer:
             self.df = pd.DataFrame(self.rows)
 
         if self.output == "db":
-            self.df.to_sql(self.layer.key, get_engine(), if_exists="replace")
+            self.df.to_sql(
+                self.layer.key, get_engine(), index=False, if_exists="replace"
+            )
         elif self.output == "fs":
             self.df.to_csv(self.get_data_path() / f"{self.layer.key}.csv", index=False)
         else:
@@ -201,7 +207,7 @@ class BaseLayer:
             )
         ) AS geojson
         FROM data
-        """).format(table=sql.Identifier(self.raw_vector_data_table))
+        """).format(table=sql.Identifier(self.get_vector_data_table()))
 
         with connection.cursor() as c:
             c.execute(query)
@@ -211,3 +217,26 @@ class BaseLayer:
             return result[0]
 
         return None
+
+    def get_vector_data_table(self) -> str | None:
+        if not self.raw_vector_data_table:
+            return None
+
+        return f"data_{self.key}"
+
+    def write_vector_data_to_db(self, gdf):
+        gdf.to_postgis(
+            self.get_vector_data_table(), con=get_engine(), if_exists="replace"
+        )
+
+    def get_vector_data_df(self) -> pd.DataFrame:
+        if self.raw_vector_data_table is None:
+            raise Exception("Data Layer has no configures vector data table")
+
+        query = sql.SQL("SELECT * FROM {table}").format(
+            table=sql.Identifier(self.get_vector_data_table())
+        )
+
+        return geopandas.read_postgis(
+            query.as_string(connection), con=get_conn_string(), geom_col="geometry"
+        )

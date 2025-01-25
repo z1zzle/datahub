@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 
-from datalayers.utils import dictfetchone
+from datalayers.utils import dictfetchone, get_conn_string
 from shapes.models import Shape, Type
 
 from .datasources.base_layer import LayerTimeResolution, LayerValueType
@@ -29,6 +29,11 @@ def camel(s):
     return string.capwords(s).replace(" ", "")
 
 
+class CategoryManager(models.Manager):
+    def get_by_natural_key(self, key):
+        return self.get(key=key)
+
+
 class Category(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -36,6 +41,8 @@ class Category(models.Model):
     name = models.CharField(max_length=255)
     key = models.SlugField(max_length=255, null=False, unique=True)
     description = models.TextField(blank=True)
+
+    objects = CategoryManager()
 
     class Meta:
         verbose_name_plural = "categories"
@@ -48,17 +55,64 @@ class Category(models.Model):
             "datalayers:datalayer_index_category", kwargs={"category_id": self.id}
         )
 
+    def natural_key(self):
+        return (self.key,)
+
 
 class DatalayerValue:
     def __init__(self, datalayer, row) -> None:
         self.result = row
         self.dl = datalayer
 
+        self.requested_shape = None
+        self.requested_ts = None
+
         self.value = None
+        self.shape_id = None
         self.time = None
 
         if row is not None and "value" in row:
             self.value = row["value"]
+            self.shape_id = row["shape_id"]
+
+    def has_value(self) -> bool:
+        return self.value is not None
+
+    def set_requested_ts(self, when: dt.date) -> None:
+        self.requested_ts = when
+
+    def set_requested_shape(self, shape: Shape) -> None:
+        self.requested_shape = shape
+
+    def is_derived_value(self) -> bool:
+        # check if either is derived!
+        return self.is_derived_temporal() or self.is_derived_spatial()
+
+    def is_derived_spatial(self) -> bool:
+        return (
+            self.requested_shape is not None
+            and self.requested_shape.id != self.shape_id
+        )
+
+    def is_derived_temporal(self):
+        if self.requested_ts is not None and self.result is not None:
+            match self.dl.temporal_resolution:
+                case LayerTimeResolution.YEAR:
+                    if "year" in self.result:
+                        return self.requested_ts.year != int(self.result["year"])
+                case LayerTimeResolution.DAY:
+                    date1 = self.requested_ts
+                    date2 = self.result["date"]
+                    return not (
+                        date1.year == date2.year
+                        and date1.month == date2.month
+                        and date1.day == date2.day
+                    )
+                case _:
+                    msg = f"Unknown time_col={self.dl.temporal_resolution}"
+                    raise ValueError(msg)
+
+        return False
 
     def date(self):
         if self.result is None:
@@ -76,6 +130,11 @@ class DatalayerValue:
             case _:
                 msg = f"Unknown time_col={self.dl.temporal_resolution}"
                 raise ValueError(msg)
+
+    def shape(self) -> Shape | None:
+        if self.shape_id:
+            return Shape.objects.get(pk=self.shape_id)
+        return None
 
     def timestamp(self):
         if self.result is None:
@@ -102,13 +161,33 @@ class DatalayerValue:
         return self.value
 
 
+class DatalayerManager(models.Manager):
+    def get_datalayers(self, keys: list[str]):
+        return self.filter(key__in=keys)
+
+    def get_by_natural_key(self, key):
+        return self.get(key=key)
+
+
 class Datalayer(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    key = models.SlugField(max_length=255, null=False, unique=True)
+    key = models.SlugField(
+        max_length=255,
+        null=False,
+        unique=True,
+        help_text=_(
+            "Unique key identifying this Data Layer, use only <code>a-z</code>, <code>0-9</code> and <code>_</code>. Follow the convention of <code>&lt;source&gt;_&lt;parameter&gt;</code>."
+        ),
+    )
     name = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
+    description = models.TextField(
+        blank=True,
+        help_text=_(
+            'You can use <a href="https://www.markdownguide.org/cheat-sheet/" target="_blank">Markdown</a> for text formatting, including tables and footnotes.'
+        ),
+    )
 
     category = models.ForeignKey(
         Category,
@@ -148,6 +227,8 @@ class Datalayer(models.Model):
     date_last_accessed = models.DateField(blank=True, null=True)
     citation = models.TextField(blank=True)
 
+    objects = DatalayerManager()
+
     # creator       = models.CharField(max_length=255, blank=True)
     # type          = models.CharField(max_length=255, blank=True)
     # identifier    = models.CharField(max_length=255, blank=True)
@@ -157,6 +238,9 @@ class Datalayer(models.Model):
 
     def get_absolute_url(self):
         return reverse("datalayers:datalayer_detail", kwargs={"key": self.key})
+
+    def natural_key(self):
+        return (self.key,)
 
     # --
 
@@ -396,6 +480,7 @@ class Datalayer(models.Model):
         fallback_parent=False,
         mode="down",
     ):
+        """Select a singel value of the Data Layer for a shape and optional timestamp."""
         if not self.is_loaded():
             return None
 
@@ -490,7 +575,9 @@ class Datalayer(models.Model):
             temporal_column=sql.Identifier(str(self.temporal_resolution)),
         )
 
-        return pd.read_sql(query.as_string(connection), con=connection, params=params)
+        return pd.read_sql(
+            query.as_string(connection), con=get_conn_string(), params=params
+        )
 
     def value_coverage(self, shape_type: Optional[Type] = None) -> float:
         if not self.is_loaded():
@@ -668,6 +755,9 @@ class DatalayerSource(models.Model):
     datacite = models.JSONField(null=True, blank=True, editable=False)
     datacite_fetched_at = models.DateTimeField(null=True, blank=True, editable=False)
 
+    def natural_key(self):
+        return (self.datalayer.key,)
+
     def get_pid_url(self):
         match self.pid_type:
             case DatalayerSource.SourcePIDType.DOI:
@@ -711,7 +801,7 @@ class DatalayerLogEntry(models.Model):
     # this might be more ore less the channel of the log statement
     datalayer = models.ForeignKey(
         Datalayer,
-        on_delete=models.RESTRICT,
+        on_delete=models.CASCADE,
         related_name="logentries",
     )
 
