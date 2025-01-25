@@ -15,15 +15,20 @@ class Command(BaseCommand):
 
         ShapeDataLayerYearStats.objects.all().delete()
 
-
         for data_layer in data_layers:
-            table_name = data_layer.key
-            temporal_resolution = data_layer.temporal_resolution
+            try:
+                table_name = data_layer.key
+                temporal_resolution = data_layer.temporal_resolution
+                if temporal_resolution == LayerTimeResolution.YEAR:
+                    self.copy_all_entries(table_name, data_layer)
+                else:
+                    self.process_non_yearly_layers(data_layer)
 
-            if temporal_resolution == LayerTimeResolution.YEAR:
-                self.copy_all_entries(table_name, data_layer)
-            else:
-                self.process_non_yearly_layers(data_layer)
+            except Exception as layer_error:
+                self.stdout.write(
+                    self.style.ERROR(
+                        f"Error processing data layer {data_layer.key}: {layer_error}")
+                )
 
         self.stdout.write(self.style.SUCCESS('Successfully precomputed stats!'))
 
