@@ -1,5 +1,6 @@
 import {applyPreset, getColor, updateLegendBar} from './customization_utils.js';
 import {fetchData} from "./info_map_api.js";
+import {initializeSlider} from "./slider_utils.js";
 
 const {centerX, centerY, centerZoom, minYear, maxYear, presets} = config;
 
@@ -37,39 +38,11 @@ $(document).ready(function () {
 		$('.form-check-input').prop('checked', false);
 	});
 
-	initializeSlider(minYear, maxYear);
+	const slider = $('#year-slider')[0];
+	initializeSlider(slider, minYear, maxYear);
+	slider.noUiSlider.on('change', updateMap);
 	populateLegendSelect();
 });
-
-function initializeSlider(minYear, maxYear) {
-	const slider = $('#year-slider')[0];
-	if (slider && slider.noUiSlider) {
-		slider.noUiSlider.destroy();
-	}
-	noUiSlider.create(slider, {
-		start: minYear,
-		step: 1,
-		range: {
-			'min': minYear,
-			'max': maxYear
-		},
-		tooltips: {
-			to: function (value) {
-				return value.toFixed(0);
-			},
-			from: function (value) {
-				return Number(value);
-			}
-		},
-		pips: {
-			mode: 'values',
-			values: [minYear, maxYear],
-			density: 10
-		}
-	});
-
-	slider.noUiSlider.on('change', updateMap);
-}
 
 function addLegend() {
 	const legend = L.control({position: 'bottomright'});

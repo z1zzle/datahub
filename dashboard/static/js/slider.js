@@ -6,6 +6,7 @@ import {
 	fetchLayerData,
 	fetchMinMaxValues
 } from "./slider_api.js";
+import {initializeSlider, updateSlider} from "./slider_utils.js";
 
 const {centerX, centerY, centerZoom, presets} = config;
 
@@ -58,54 +59,20 @@ $('.add-datalayer').on('click', async function () {
 async function processObjects(dataLayerKey, dataLayerName) {
 	const data = await fetchAvailableYears(dataLayerKey);
 	const slider = $('#year-slider')[0];
+	const minYear = Math.min(...data);
+	const maxYear = Math.max(...data);
 	if (slider && slider.noUiSlider) {
-		updateSlider(slider, data)
+		updateSlider(slider, minYear, maxYear)
 	} else {
-		initializeSlider(slider, data)
+		initializeSlider(slider, minYear, maxYear)
+		slider.noUiSlider.on('change', updateMap);
 	}
 	await createNewLayer(slider, dataLayerKey);
 	await createNewGraph(dataLayerKey, dataLayerName)
 
 }
 
-function initializeSlider(slider, availableYears) {
-	const minYear = Math.min(...availableYears);
-	const maxYear = Math.max(...availableYears);
-	noUiSlider.create(slider, {
-		start: minYear,
-		step: 1,
-		range: {
-			'min': minYear,
-			'max': maxYear
-		},
-		tooltips: {
-			to: function (value) {
-				return value.toFixed(0);
-			},
-			from: function (value) {
-				return Number(value);
-			}
-		},
-		pips: {
-			mode: 'values',
-			values: [minYear, maxYear],
-			density: 10
-		}
-	});
-	slider.noUiSlider.on('change', updateMap);
-}
 
-function updateSlider(slider, availableYears) {
-	const range = slider.noUiSlider.options.range;
-	const newMinYear = Math.min(range.min, Math.min(...availableYears))
-	const newMaxYear = Math.max(range.max, Math.max(...availableYears))
-	slider.noUiSlider.updateOptions({
-		range: {
-			'min': newMinYear,
-			'max': newMaxYear
-		}
-	});
-}
 
 function createLayerGroup(dataLayerKey, minValue, maxValue, data, presetColors) {
 	const {names, geometries, dl_values: dlValues} = data;
