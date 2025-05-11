@@ -225,17 +225,17 @@ def get_min_max_dl_value(request):
     data_layer_key = request.GET.get('data_layer_key')
     shape_type = request.GET.get('shape_type')
 
-    query = f"""
-                SELECT MIN(value), MAX(value)
-                FROM {data_layer_key} JOIN shapes_shape ON
-                {data_layer_key}.shape_id = shapes_shape.id
-                JOIN shapes_type ON shapes_shape.type_id = shapes_type.id
-                WHERE shapes_type.id = {shape_type}
-                """
+    query = """
+        SELECT MIN(d.value), MAX(d.value)
+        FROM dashboard_shapedatalayeryearstats d
+        JOIN shapes_shape s ON d.shape_id = s.id
+        JOIN shapes_type t ON s.type_id = t.id
+        WHERE t.id = %s AND d.data_layer = %s
+    """
 
     try:
         with connection.cursor() as c:
-            c.execute(query)
+            c.execute(query, (shape_type, data_layer_key))
             res = c.fetchone()
 
         min_value = res[0]
